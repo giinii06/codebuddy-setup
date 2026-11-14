@@ -1,0 +1,50 @@
+name: release
+
+# Authoritative builder for both wb-codebuddy assets. A v* tag push is the only
+# trigger, so the four release files always come from this workflow and never
+# from a local build.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      # Both jobs upload to one release. Run them in order so the second job
+      # never races the first one while it creates the release.
+      max-parallel: 1
+      matrix:
+        include:
+          - os: macos-14
+            asset: wb-codebuddy-darwin-arm64
+          # 22.04 pins the binary to glibc 2.35, so it runs on WSL Ubuntu 22.04
+          # and 24.04 alike. ubuntu-latest would raise that floor and drop 22.04.
+          - os: ubuntu-22.04
+            asset: wb-codebuddy-linux-amd64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build --release --manifest-path vendor/wb-codebuddy/Cargo.toml
+      - name: Stage asset
+        run: cp vendor/wb-codebuddy/target/release/wb-codebuddy "${{ matrix.asset }}"
+      - name: Checksum
+        run: |
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          fi
+      # Each job uploads its own pair to the same release, so the run leaves all
+      # four files attached.
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha256

@@ -1,0 +1,2 @@
+#!/bin/sh
+printf 'wb-codebuddy fixture darwin-arm64\n'

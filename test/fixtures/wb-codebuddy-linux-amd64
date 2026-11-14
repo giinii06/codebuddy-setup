@@ -1,0 +1,2 @@
+#!/bin/sh
+printf 'wb-codebuddy fixture linux-amd64\n'
