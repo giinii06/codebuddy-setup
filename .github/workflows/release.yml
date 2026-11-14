@@ -21,14 +21,16 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          - os: macos-14
+          # macos-15 is the arm64 label this repository can actually schedule;
+          # macos-14 resolves to an unsupported arm64 configuration here.
+          - os: macos-15
             asset: wb-codebuddy-darwin-arm64
           # 22.04 pins the binary to glibc 2.35, so it runs on WSL Ubuntu 22.04
           # and 24.04 alike. ubuntu-latest would raise that floor and drop 22.04.
           - os: ubuntu-22.04
             asset: wb-codebuddy-linux-amd64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - name: Build
         run: cargo build --release --manifest-path vendor/wb-codebuddy/Cargo.toml

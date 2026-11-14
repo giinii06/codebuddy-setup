@@ -132,7 +132,7 @@ WSL에서 브라우저가 열리지 않으면 출력된 URL을 직접 엽니다.
 
 릴리스 자산을 만드는 곳은 `.github/workflows/release.yml` 하나입니다. `v*` 태그를 밀면 이 워크플로가 두 바이너리와 `.sha256` 두 개, 모두 네 파일을 릴리스에 올립니다. 설치 스크립트는 이 릴리스에서 내려받습니다.
 
-- `wb-codebuddy-darwin-arm64`는 `macos-14`에서 빌드합니다.
+- `wb-codebuddy-darwin-arm64`는 `macos-15`(arm64)에서 빌드합니다.
 - `wb-codebuddy-linux-amd64`는 `ubuntu-22.04`에서 빌드합니다. glibc 2.35에 맞춰지므로 WSL Ubuntu 22.04와 24.04에서 모두 동작합니다. `ubuntu-latest`를 쓰면 요구 glibc가 올라가 22.04에서 깨집니다.
 
 `scripts/build-release.sh`는 로컬 확인용입니다. 인자 없이 실행하면 macOS 바이너리만 만듭니다.
