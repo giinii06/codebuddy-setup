@@ -110,7 +110,7 @@ WSL에서 셸이 bash이면 `exec zsh` 대신 `source ~/.bashrc`를 실행합니
 export CODEBUDDY_PERMISSION_MODE=default
 ```
 
-wb-codebuddy 바이너리는 이 저장소의 `vendor/wb-codebuddy` 소스에서 빌드합니다. macOS는 `scripts/build-release.sh`가, Linux는 같은 스크립트의 Docker 경로나 GitHub Actions가 만듭니다. 릴리스 자산은 `.sha256`과 함께 배포하고 설치 스크립트가 검증합니다.
+wb-codebuddy 바이너리는 이 저장소의 `vendor/wb-codebuddy` 소스에서 빌드합니다. 릴리스 자산은 GitHub Actions가 만들고, 로컬 확인용으로 `scripts/build-release.sh`를 쓸 수 있습니다. 릴리스 자산은 `.sha256`과 함께 배포하고 설치 스크립트가 검증합니다.
 
 `apiKeyHelper`는 `~/.wb-switch/accounts.json`이 비어 있지 않은 배열일 때만 설정합니다. 계정이 없는데 먼저 걸면 helper가 종료 코드 1로 끝나 CLI가 시작하지 못합니다.
 
