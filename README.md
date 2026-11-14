@@ -20,6 +20,8 @@ CodeBuddy CLI, pstack, 공식 플러그인, MCP 서버, wb-codebuddy를 설치�
 
 macOS Apple Silicon은 이 저장소를 만든 맥에서 끝까지 실행해 확인했습니다. 설치는 물론 설정 병합, 재실행, 설치된 wb-codebuddy 바이너리 실행까지 포함합니다.
 
+Node와 Bun 자동 설치는 macOS에서 실제 배포판을 내려받아 체크섬, 버전, 새 셸의 PATH 해석까지 확인했습니다. Linux는 같은 코드 경로를 테스트 하네스의 가짜 아카이브로 검사하고, 실제 linux-x64 Node tarball과 Bun zip의 이름과 내부 구조도 대조했습니다.
+
 Linux 경로는 실제 WSL 머신에서 아직 실행하지 않았습니다. `test/install-test.sh`가 Linux를 스텁으로 검사합니다. CodeBuddy CLI 자리에 같은 인터페이스를 흉내 내는 스텁 tarball을 넣고, `brew`와 `npm`도 스텁으로 바꿉니다. 그래서 설치 순서, 파일 배치, 권한, 설정 병합, 재실행 수렴은 검증되지만 실제 CodeBuddy CLI의 동작은 검증되지 않습니다.
 
 공식 CodeBuddy Linux 바이너리는 172MB짜리 Bun 1.4.4 standalone 실행 파일입니다. AVX가 없는 QEMU에서는 세그폴트가 나므로 이 맥의 Docker로 실행 검증을 할 수 없습니다. WSL에서 직접 확인해야 합니다.
@@ -29,6 +31,7 @@ wb-codebuddy의 Linux 바이너리는 Rust로 빌드되어 QEMU에서도 실행�
 ## 설치하는 것
 
 - CodeBuddy CLI. macOS는 Homebrew formula, Linux는 공식 tarball 2.184.0.
+- Node 24 LTS와 Bun. 이미 있으면 건너뛰고, 없으면 공식 배포판을 SHA256으로 확인한 뒤 `~/.local/node`와 `~/.bun`에 설치합니다.
 - pstack과 공식 플러그인 8개. pstack은 `pstack-claude` 마켓에서, 나머지는 `codebuddy-plugins-official`에서 받습니다.
 - MCP 서버 context7, exa, codegraph.
 - wb-codebuddy. 릴리스 바이너리, `apiKeyHelper` 스크립트, 429 자동 전환 래퍼, `Stop`/`FinalStop` 훅.
@@ -38,9 +41,11 @@ wb-codebuddy의 Linux 바이너리는 Rust로 빌드되어 QEMU에서도 실행�
 
 ## 요구 사항
 
-macOS는 Homebrew가 필요합니다. 없으면 설치 스크립트가 먼저 안내하고 멈춥니다. node와 python3가 없으면 brew로 설치합니다.
+macOS는 Homebrew가 필요합니다. 없으면 설치 스크립트가 먼저 안내하고 멈춥니다. python3가 없으면 brew로 설치합니다.
 
-WSL2 Ubuntu는 `curl`, `tar`, SHA256 도구가 필요합니다. 우분투에는 모두 들어 있습니다. node가 없거나 메이저 버전이 20 미만이면 Node 24 LTS를 `~/.local/node`에 설치하고 `~/.local/bin`에 링크합니다. python3는 우분투에 기본으로 있으므로 설치 스크립트가 직접 설치하지 않습니다. 없으면 `apt` 명령을 알려 주고 멈춥니다.
+WSL2 Ubuntu는 `curl`, `tar`, SHA256 도구가 필요합니다. 우분투에는 모두 들어 있습니다.
+
+두 플랫폼 모두 Node 24 LTS와 Bun을 자동으로 설치합니다. 이미 있으면 건너뜁니다. Node가 없거나 메이저 버전이 20 미만이면 공식 tarball을 `~/.local/node`에 풀고 `~/.local/bin`에 링크합니다. Bun은 공식 zip을 `~/.bun`에 풀고 `~/.bun/bin`을 PATH에 넣습니다. python3는 우분투에 기본으로 있으므로 설치 스크립트가 직접 설치하지 않습니다. 없으면 `apt` 명령을 알려 주고 멈춥니다.
 
 sudo는 쓰지 않습니다. 모든 파일은 홈 디렉터리 아래에 들어갑니다.
 
@@ -101,6 +106,8 @@ WSL에서 셸이 bash이면 `exec zsh` 대신 `source ~/.bashrc`를 실행합니
 | `~/.wb-switch/hook.sh` | `Stop` 훅. 이벤트를 `~/.wb-switch/hook-events.jsonl`에 남깁니다 |
 | `~/.local/bin/wb-codebuddy` | 계정 관리 바이너리 |
 | `~/.local/bin/codebuddy` | Linux에서 받은 CodeBuddy CLI |
+| `~/.local/node/bin/node` | Node 24 LTS. `~/.local/bin/node`가 가리킵니다 |
+| `~/.bun/bin/bun` | Bun. `bunx`도 같은 디렉터리에 있습니다 |
 
 ## 보안
 
@@ -110,7 +117,7 @@ WSL에서 셸이 bash이면 `exec zsh` 대신 `source ~/.bashrc`를 실행합니
 export CODEBUDDY_PERMISSION_MODE=default
 ```
 
-wb-codebuddy 바이너리는 이 저장소의 `vendor/wb-codebuddy` 소스에서 빌드합니다. 릴리스 자산은 GitHub Actions가 만들고, 로컬 확인용으로 `scripts/build-release.sh`를 쓸 수 있습니다. 릴리스 자산은 `.sha256`과 함께 배포하고 설치 스크립트가 검증합니다.
+wb-codebuddy 바이너리는 이 저장소의 `vendor/wb-codebuddy` 소스에서 빌드합니다. 릴리스 자산은 GitHub Actions가 만들고, 로컬 확인용으로 `scripts/build-release.sh`를 쓸 수 있습니다. 릴리스 자산은 `.sha256`과 함께 배포하고 설치 스크립트가 검증합니다. Node와 Bun도 공식 배포처의 `SHASUMS256.txt`와 대조한 뒤 설치합니다.
 
 `apiKeyHelper`는 `~/.wb-switch/accounts.json`이 비어 있지 않은 배열일 때만 설정합니다. 계정이 없는데 먼저 걸면 helper가 종료 코드 1로 끝나 CLI가 시작하지 못합니다.
 
@@ -127,6 +134,8 @@ wb-codebuddy 바이너리는 이 저장소의 `vendor/wb-codebuddy` 소스에서
 설치 후 CLI가 시작하지 않으면 `~/.wb-switch/accounts.json`을 확인하세요. 없거나 빈 배열이면 `wb-codebuddy login`을 먼저 실행합니다.
 
 WSL에서 브라우저가 열리지 않으면 출력된 URL을 직접 엽니다. `sudo apt install -y wslu`를 설치하면 다음부터 `wslview`가 처리합니다.
+
+`node`나 `bun`이 보이지 않으면 셸 설정을 다시 읽었는지 확인합니다. `~/.local/bin`과 `~/.bun/bin`은 설치 스크립트가 넣은 블록이 PATH에 추가합니다.
 
 ## 빌드
 

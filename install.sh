@@ -11,10 +11,14 @@ CODEBUDDY_LINUX_SHA256="${CODEBUDDY_LINUX_SHA256:-1d780dc0f459d30ac0cc51153d04f2
 CODEBUDDY_CLI_ARCHIVE="${CODEBUDDY_CLI_ARCHIVE:-}"
 CODEBUDDY_CLI_SHA256="${CODEBUDDY_CLI_SHA256:-}"
 NODE_VERSION="${NODE_VERSION:-24.22.3}"
+BUN_VERSION="${BUN_VERSION:-1.4.4}"
+NODE_DIST="${CODEBUDDY_SETUP_NODE_DIST:-https://nodejs.org/dist}"
+BUN_DIST="${CODEBUDDY_SETUP_BUN_DIST:-https://github.com/oven-sh/bun/releases/download}"
 
 HOME_DIR="$HOME"
 LOCAL_BIN="$HOME_DIR/.local/bin"
 NODE_DIR="$HOME_DIR/.local/node"
+BUN_DIR="$HOME_DIR/.bun"
 CB_DIR="$HOME_DIR/.codebuddy"
 SETTINGS="$CB_DIR/settings.json"
 MCP_CONFIG="$CB_DIR/.mcp.json"
@@ -135,73 +139,128 @@ node_major() {
   esac
 }
 
-install_node_linux() {
-  local major archive sums expected actual extract
+install_node() {
+  local major name archive sums expected extract source
   major="$(node_major)"
   if [ "$major" -ge 20 ]; then
     say "이미 있음  node $(node --version)"
     return 0
   fi
-  say "설치  Node $NODE_VERSION (linux-x64)"
-  archive="$TMP_DIR/node-v$NODE_VERSION-linux-x64.tar.xz"
+
+  case "$PLATFORM" in
+    darwin-arm64) name="node-v$NODE_VERSION-darwin-arm64.tar.gz" ;;
+    linux-amd64) name="node-v$NODE_VERSION-linux-x64.tar.xz" ;;
+  esac
+  say "설치  Node $NODE_VERSION ($PLATFORM)"
+
+  archive="$TMP_DIR/$name"
   sums="$TMP_DIR/node-SHASUMS256.txt"
-  fetch "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz" "$archive"
-  fetch "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt" "$sums"
-  expected="$(awk -v name="node-v$NODE_VERSION-linux-x64.tar.xz" '$2 == name {print $1}' "$sums")"
-  [ -n "$expected" ] || die "Node 체크섬 목록에서 항목을 찾지 못했습니다."
-  verify_sha256 "$archive" "$expected" "node-v$NODE_VERSION-linux-x64.tar.xz"
+  fetch "$NODE_DIST/v$NODE_VERSION/$name" "$archive"
+  fetch "$NODE_DIST/v$NODE_VERSION/SHASUMS256.txt" "$sums"
+  expected="$(awk -v name="$name" '$2 == name {print $1}' "$sums")"
+  [ -n "$expected" ] || die "Node 체크섬 목록에서 $name 항목을 찾지 못했습니다."
+  verify_sha256 "$archive" "$expected" "$name"
 
   extract="$TMP_DIR/node-extract"
   mkdir -p "$extract"
-  tar -xJf "$archive" -C "$extract" || die "Node 압축을 풀지 못했습니다. xz-utils가 필요합니다."
-  [ -d "$extract/node-v$NODE_VERSION-linux-x64" ] || die "Node 압축 구조가 예상과 다릅니다."
+  case "$name" in
+    *.tar.xz)
+      tar -xJf "$archive" -C "$extract" || die "Node 압축을 풀지 못했습니다. xz-utils가 필요합니다."
+      ;;
+    *)
+      tar -xzf "$archive" -C "$extract" || die "Node 압축을 풀지 못했습니다."
+      ;;
+  esac
+  source="$extract/${name%.tar.*}"
+  [ -d "$source" ] || die "Node 압축 구조가 예상과 다릅니다."
 
   rm -rf "$NODE_DIR"
   mkdir -p "$(dirname "$NODE_DIR")"
-  mv "$extract/node-v$NODE_VERSION-linux-x64" "$NODE_DIR"
+  mv "$source" "$NODE_DIR"
   mkdir -p "$LOCAL_BIN"
   ln -sf "$NODE_DIR/bin/node" "$LOCAL_BIN/node"
   ln -sf "$NODE_DIR/bin/npm" "$LOCAL_BIN/npm"
   ln -sf "$NODE_DIR/bin/npx" "$LOCAL_BIN/npx"
   hash -r
-  actual="$(node --version 2>/dev/null || true)"
-  [ -n "$actual" ] || die "Node를 설치했지만 PATH에서 찾지 못했습니다."
-  say "설치 완료  node $actual"
+  have node || die "Node를 설치했지만 PATH에서 찾지 못했습니다."
+  say "설치 완료  node $(node --version)"
 }
 
-install_dependencies() {
+install_python() {
+  if have python3; then
+    say "이미 있음  python3 $(python3 --version 2>&1)"
+    return 0
+  fi
   if [ "$PLATFORM" = "darwin-arm64" ]; then
-    have brew || die "Homebrew가 필요합니다. https://brew.sh 에서 설치한 뒤 다시 실행하세요."
-    if have node; then
-      say "이미 있음  node $(node --version)"
-    else
-      say "설치  node (brew)"
-      brew install node || die "node 설치에 실패했습니다."
-      hash -r
-      have node || die "node를 설치했지만 PATH에서 찾지 못했습니다."
-    fi
-    if have python3; then
-      say "이미 있음  python3 $(python3 --version 2>&1)"
-    else
-      say "설치  python (brew)"
-      brew install python || die "python 설치에 실패했습니다."
-      hash -r
-      have python3 || die "python3를 설치했지만 PATH에서 찾지 못했습니다."
-    fi
+    say "설치  python (brew)"
+    brew install python || die "python 설치에 실패했습니다."
+    hash -r
+    have python3 || die "python3를 설치했지만 PATH에서 찾지 못했습니다."
+    return 0
+  fi
+  die "python3가 없습니다. sudo apt install -y python3 를 실행한 뒤 다시 시도하세요."
+}
+
+install_bun() {
+  local name archive sums expected extract source
+  if [ -x "$BUN_DIR/bin/bun" ]; then
+    say "이미 있음  bun $("$BUN_DIR/bin/bun" --version 2>/dev/null || true)"
+    return 0
+  fi
+  if have bun; then
+    say "이미 있음  bun $(bun --version)"
     return 0
   fi
 
+  case "$PLATFORM" in
+    darwin-arm64) name="bun-darwin-aarch64.zip" ;;
+    linux-amd64) name="bun-linux-x64.zip" ;;
+  esac
+  say "설치  Bun $BUN_VERSION ($PLATFORM)"
+
+  archive="$TMP_DIR/$name"
+  sums="$TMP_DIR/bun-SHASUMS256.txt"
+  fetch "$BUN_DIST/bun-v$BUN_VERSION/$name" "$archive"
+  fetch "$BUN_DIST/bun-v$BUN_VERSION/SHASUMS256.txt" "$sums"
+  expected="$(awk -v name="$name" '$2 == name {print $1}' "$sums")"
+  [ -n "$expected" ] || die "Bun 체크섬 목록에서 $name 항목을 찾지 못했습니다."
+  verify_sha256 "$archive" "$expected" "$name"
+
+  extract="$TMP_DIR/bun-extract"
+  mkdir -p "$extract"
+  if have unzip; then
+    unzip -q "$archive" -d "$extract" || die "Bun 압축을 풀지 못했습니다."
+  elif have python3; then
+    python3 -m zipfile -e "$archive" "$extract" || die "Bun 압축을 풀지 못했습니다."
+  else
+    die "Bun 압축을 풀려면 unzip 또는 python3가 필요합니다."
+  fi
+  source="$extract/${name%.zip}"
+  [ -f "$source/bun" ] || die "Bun 압축 구조가 예상과 다릅니다."
+
+  mkdir -p "$BUN_DIR/bin"
+  install -m 755 "$source/bun" "$BUN_DIR/bin/bun"
+  ln -sf "$BUN_DIR/bin/bun" "$BUN_DIR/bin/bunx"
+  hash -r
+  have bun || die "Bun을 설치했지만 PATH에서 찾지 못했습니다."
+  say "설치 완료  bun $("$BUN_DIR/bin/bun" --version)"
+}
+
+install_dependencies() {
   local missing=""
   for tool in curl tar; do
     have "$tool" || missing="$missing $tool"
   done
   [ -z "$missing" ] || die "필수 도구가 없습니다:$missing"
   require_sha256_tool
-  install_node_linux
-  if ! have python3; then
-    die "python3가 없습니다. sudo apt install -y python3 를 실행한 뒤 다시 시도하세요."
+
+  if [ "$PLATFORM" = "darwin-arm64" ]; then
+    have brew || die "Homebrew가 필요합니다. https://brew.sh 에서 설치한 뒤 다시 실행하세요."
   fi
-  say "이미 있음  python3 $(python3 --version 2>&1)"
+
+  install_node
+  install_python
+  install_bun
 }
 
 install_codebuddy_cli() {
@@ -351,26 +410,48 @@ merge_settings() {
 
 install_shell_block() {
   resolve_shell_rc
-  if [ ! -f "$SHELL_RC" ]; then
-    mkdir -p "$(dirname "$SHELL_RC")"
-    : > "$SHELL_RC"
+  mkdir -p "$(dirname "$SHELL_RC")"
+  [ -f "$SHELL_RC" ] || : > "$SHELL_RC"
+
+  local next="$TMP_DIR/shellrc"
+  if grep -Fq "$SHELL_MARKER" "$SHELL_RC"; then
+    awk -v start="$SHELL_MARKER" -v end="$SHELL_MARKER_END" '
+      $0 == start {
+        print start
+        print "export BUN_INSTALL=\"$HOME/.bun\""
+        print "export PATH=\"$HOME/.local/bin:$HOME/.bun/bin:$PATH\""
+        print "alias codebuddy=\"$HOME/.codebuddy-rotate/codebuddy-rotate.py\""
+        skip = 1
+        next
+      }
+      $0 == end { skip = 0 }
+      !skip { print }
+    ' "$SHELL_RC" > "$next"
+  else
+    cp "$SHELL_RC" "$next"
+    if [ -s "$next" ] && [ -n "$(tail -c 1 "$next")" ]; then
+      printf '\n' >> "$next"
+    fi
+    if [ -s "$next" ]; then
+      printf '\n' >> "$next"
+    fi
+    {
+      printf '%s\n' "$SHELL_MARKER"
+      printf 'export BUN_INSTALL="$HOME/.bun"\n'
+      printf 'export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"\n'
+      printf 'alias codebuddy="$HOME/.codebuddy-rotate/codebuddy-rotate.py"\n'
+      printf '%s\n' "$SHELL_MARKER_END"
+    } >> "$next"
   fi
-  case "$(cat "$SHELL_RC")" in
-    *"$SHELL_MARKER"*)
-      say "이미 있음  $SHELL_RC 블록"
-      return 0
-      ;;
-  esac
-  if [ -s "$SHELL_RC" ] && [ -n "$(tail -c 1 "$SHELL_RC")" ]; then
-    printf '\n' >> "$SHELL_RC"
+
+  if cmp -s "$next" "$SHELL_RC"; then
+    say "이미 있음  $SHELL_RC 블록"
+    return 0
   fi
-  {
-    printf '%s\n' "$SHELL_MARKER"
-    printf 'export PATH="$HOME/.local/bin:$PATH"\n'
-    printf 'alias codebuddy="$HOME/.codebuddy-rotate/codebuddy-rotate.py"\n'
-    printf '%s\n' "$SHELL_MARKER_END"
-  } >> "$SHELL_RC"
-  say "셸 설정 추가  $SHELL_RC"
+  cp -p "$SHELL_RC" "$SHELL_RC.codebuddy-setup.tmp"
+  cat "$next" > "$SHELL_RC.codebuddy-setup.tmp"
+  mv "$SHELL_RC.codebuddy-setup.tmp" "$SHELL_RC"
+  say "셸 설정 갱신  $SHELL_RC"
 }
 
 interactive_login() {
@@ -604,12 +685,15 @@ summary() {
   say "설치를 마쳤습니다."
   say ""
   say "설치한 것"
+  say "  Node $(node --version 2>/dev/null || printf '?'), Bun $(bun --version 2>/dev/null || printf '?') (PATH 등록)"
   say "  CodeBuddy CLI, codegraph, pstack, 공식 플러그인 8개"
   say "  wb-codebuddy 바이너리와 helper, 429 전환 래퍼, Stop 훅"
   say "  MCP 서버 context7, exa, codegraph"
   say "  settings.json과 .mcp.json 병합"
   say ""
   say "경로"
+  say "  $NODE_DIR/bin/node"
+  say "  $BUN_DIR/bin/bun"
   say "  $WB_BIN"
   say "  $ROTATE_DIR/helper.cjs"
   say "  $ROTATE_DIR/codebuddy-rotate.py"
@@ -645,8 +729,8 @@ main() {
   trap 'rm -rf "$TMP_DIR"' EXIT
   write_merge_scripts
 
-  mkdir -p "$LOCAL_BIN" "$CB_DIR"
-  PATH="$LOCAL_BIN:$PATH"
+  mkdir -p "$LOCAL_BIN" "$CB_DIR" "$BUN_DIR/bin"
+  PATH="$LOCAL_BIN:$BUN_DIR/bin:$PATH"
   export PATH
 
   say "CodeBuddy 환경을 설치합니다. ($REPO)"

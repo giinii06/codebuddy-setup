@@ -88,11 +88,65 @@ STUB
 
 chmod 755 "$tmp/bin/brew" "$tmp/bin/npm" "$tmp/stubs/codebuddy" "$tmp/stubs/codegraph"
 
-for tool in node python3; do
-  src="$(command -v "$tool" 2>/dev/null || true)"
-  if [ -n "$src" ]; then
-    ln -sf "$src" "$tmp/bin/$tool"
+NODE_VERSION=24.22.3
+BUN_VERSION=1.4.4
+real_node="$(command -v node)"
+
+python_src="$(command -v python3 2>/dev/null || true)"
+if [ -n "$python_src" ]; then
+  ln -sf "$python_src" "$tmp/bin/python3"
+fi
+
+node_dist="$tmp/runtimes/node-dist/v$NODE_VERSION"
+bun_dist="$tmp/runtimes/bun-dist/bun-v$BUN_VERSION"
+mkdir -p "$node_dist" "$bun_dist"
+
+make_node_archive() {
+  local platform="$1"
+  local suffix="$2"
+  local top="node-v$NODE_VERSION-$platform"
+  local root="$tmp/runtimes/node-pkg-$platform"
+  mkdir -p "$root/$top/bin"
+  cat > "$root/$top/bin/node" <<EOF
+#!/bin/sh
+exec "$real_node" "\$@"
+EOF
+  cp "$tmp/bin/npm" "$root/$top/bin/npm"
+  cp "$tmp/bin/npm" "$root/$top/bin/npx"
+  chmod 755 "$root/$top/bin/node" "$root/$top/bin/npm" "$root/$top/bin/npx"
+  if [ "$suffix" = "tar.xz" ]; then
+    tar -cJf "$node_dist/$top.tar.xz" -C "$root" "$top"
+  else
+    tar -czf "$node_dist/$top.tar.gz" -C "$root" "$top"
   fi
+}
+
+make_bun_archive() {
+  local platform="$1"
+  local root="$tmp/runtimes/bun-pkg-$platform"
+  mkdir -p "$root/bun-$platform"
+  cat > "$root/bun-$platform/bun" <<EOF
+#!/bin/sh
+case "\${1:-}" in
+  --version) printf '%s\n' "$BUN_VERSION" ;;
+esac
+EOF
+  chmod 755 "$root/bun-$platform/bun"
+  (cd "$root" && python3 -m zipfile -c "$bun_dist/bun-$platform.zip" "bun-$platform")
+}
+
+make_node_archive darwin-arm64 tar.gz
+make_node_archive linux-x64 tar.xz
+make_bun_archive darwin-aarch64
+make_bun_archive linux-x64
+
+: > "$node_dist/SHASUMS256.txt"
+for archive in "$node_dist"/*.tar.*; do
+  printf '%s  %s\n' "$(sha256_file "$archive")" "$(basename "$archive")" >> "$node_dist/SHASUMS256.txt"
+done
+: > "$bun_dist/SHASUMS256.txt"
+for archive in "$bun_dist"/*.zip; do
+  printf '%s  %s\n' "$(sha256_file "$archive")" "$(basename "$archive")" >> "$bun_dist/SHASUMS256.txt"
 done
 
 cp "$tmp/stubs/codebuddy" "$tmp/pkg/codebuddy"
@@ -191,10 +245,19 @@ const helper = path.join(home, ".codebuddy-rotate/helper.cjs");
 const rotate = path.join(home, ".codebuddy-rotate/codebuddy-rotate.py");
 const hookScript = path.join(home, ".wb-switch/hook.sh");
 const wbBinary = path.join(home, ".local/bin/wb-codebuddy");
+const nodeRoot = path.join(home, ".local/node/bin/node");
+const nodeLink = path.join(home, ".local/bin/node");
+const bunBinary = path.join(home, ".bun/bin/bun");
+const bunxBinary = path.join(home, ".bun/bin/bunx");
 check(modeOf(helper) === "700", `helper.cjs mode is ${modeOf(helper)}, expected 700`);
 check(modeOf(rotate) === "755", `codebuddy-rotate.py mode is ${modeOf(rotate)}`);
 check(modeOf(hookScript) === "755", `hook.sh mode is ${modeOf(hookScript)}`);
 check(modeOf(wbBinary) === "755", `wb-codebuddy mode is ${modeOf(wbBinary)}`);
+check(exists(nodeRoot), "node was not installed to ~/.local/node");
+check(exists(nodeLink), "the node symlink in ~/.local/bin is missing");
+check(exists(bunBinary), "bun was not installed to ~/.bun/bin");
+check(exists(bunxBinary), "the bunx symlink is missing");
+check(modeOf(bunBinary) === "755", `bun mode is ${modeOf(bunBinary)}, expected 755`);
 check(readText(hookScript).includes('"$HOME/.wb-switch/hook-events.jsonl"'), "hook.sh writes hook-events.jsonl");
 check(readText(rotate).includes("DEFAULT_MODEL"), "codebuddy-rotate.py content");
 check(readText(helper).includes("access_token"), "helper.cjs content");
@@ -202,7 +265,8 @@ check(readText(helper).includes("access_token"), "helper.cjs content");
 const markerCount = rc.split("# >>> codebuddy-setup >>>").length - 1;
 check(markerCount === 1, `${rcName} marker count is ${markerCount}`);
 check(rc.split("# <<< codebuddy-setup <<<").length - 1 === 1, `${rcName} closing marker count`);
-check(rc.includes('export PATH="$HOME/.local/bin:$PATH"'), `${rcName} PATH line`);
+check(rc.includes('export BUN_INSTALL="$HOME/.bun"'), `${rcName} BUN_INSTALL line`);
+check(rc.includes('export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"'), `${rcName} PATH line`);
 check(rc.includes('alias codebuddy="$HOME/.codebuddy-rotate/codebuddy-rotate.py"'), `${rcName} alias line`);
 if (rcName === ".bashrc") {
   check(!exists(path.join(home, ".zshrc")), ".zshrc was created for a bash login shell");
@@ -306,6 +370,13 @@ check(
   "an existing Authorization header was overwritten without a new key",
 );
 
+const rc = fs.readFileSync(path.join(home, ".zshrc"), "utf8");
+check(rc.includes("export EDITOR=vim"), "a user line before the shell block was lost");
+check(rc.includes("after=1"), "a user line after the shell block was lost");
+check(rc.includes('export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"'), "the shell block was not upgraded with the bun path");
+check(!rc.includes('export PATH="$HOME/.local/bin:$PATH"'), "the old PATH line survived");
+check((rc.match(/# >>> codebuddy-setup >>>/g) ?? []).length === 1, "the shell marker was duplicated");
+
 if (failures.length > 0) {
   process.stderr.write(`${failures.join("\n")}\n`);
   process.exit(1);
@@ -326,6 +397,9 @@ run_install() {
     export CODEBUDDY_SETUP_PLATFORM="$platform"
     export CODEBUDDY_SETUP_RAW="file://$REPO_ROOT"
     export CODEBUDDY_SETUP_RELEASE_BASE="file://$REPO_ROOT/test/fixtures"
+    export CODEBUDDY_SETUP_NODE_DIST="file://$tmp/runtimes/node-dist"
+    export CODEBUDDY_SETUP_BUN_DIST="file://$tmp/runtimes/bun-dist"
+    export NODE_VERSION BUN_VERSION
     export CODEBUDDY_SETUP_NO_LOGIN=1
     export CONTEXT7_API_KEY=test-context7
     export EXA_API_KEY=test-exa
@@ -427,6 +501,24 @@ fi
 if ! grep -Fq '체크섬 확인  wb-codebuddy-darwin-arm64' "$tmp/darwin1.log"; then
   fail "the first run did not verify the wb-codebuddy checksum"
 fi
+if ! grep -Fq '체크섬 확인  node-v' "$tmp/darwin1.log"; then
+  fail "the first run did not verify the Node checksum"
+fi
+if ! grep -Fq '체크섬 확인  bun-darwin-aarch64.zip' "$tmp/darwin1.log"; then
+  fail "the first run did not verify the Bun checksum"
+fi
+if ! grep -Fq '이미 있음  node' "$tmp/darwin2.log"; then
+  fail "the second run reinstalled Node instead of skipping it"
+fi
+if ! grep -Fq '이미 있음  bun' "$tmp/darwin2.log"; then
+  fail "the second run reinstalled Bun instead of skipping it"
+fi
+if ! grep -Fq '체크섬 확인  node-v' "$tmp/linux.log"; then
+  fail "the linux run did not verify the Node checksum"
+fi
+if ! grep -Fq '체크섬 확인  bun-linux-x64.zip' "$tmp/linux.log"; then
+  fail "the linux run did not verify the Bun checksum"
+fi
 if ! grep -Fq '체크섬 확인  codebuddy-cli.tar.gz' "$tmp/linux.log"; then
   fail "the linux run did not verify the codebuddy CLI checksum"
 fi
@@ -461,6 +553,16 @@ cat > "$preserve_home/.codebuddy/.mcp.json" <<'JSON'
 }
 JSON
 printf '[{"id": "acc_1", "access_token": "x"}]\n' > "$preserve_home/.wb-switch/accounts.json"
+cat > "$preserve_home/.zshrc" <<'RC'
+export EDITOR=vim
+
+# >>> codebuddy-setup >>>
+export PATH="$HOME/.local/bin:$PATH"
+alias codebuddy="$HOME/.codebuddy-rotate/codebuddy-rotate.py"
+# <<< codebuddy-setup <<<
+
+after=1
+RC
 
 if ! (
   export HOME="$preserve_home"
@@ -469,6 +571,9 @@ if ! (
   export CODEBUDDY_SETUP_PLATFORM=darwin-arm64
   export CODEBUDDY_SETUP_RAW="file://$REPO_ROOT"
   export CODEBUDDY_SETUP_RELEASE_BASE="file://$REPO_ROOT/test/fixtures"
+  export CODEBUDDY_SETUP_NODE_DIST="file://$tmp/runtimes/node-dist"
+  export CODEBUDDY_SETUP_BUN_DIST="file://$tmp/runtimes/bun-dist"
+  export NODE_VERSION BUN_VERSION
   export CODEBUDDY_SETUP_NO_LOGIN=1
   export STUB_STATE="$tmp/state-preserve"
   export STUB_BIN="$tmp/bin"
