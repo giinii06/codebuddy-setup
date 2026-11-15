@@ -66,10 +66,12 @@ Codex CLI는 저장소 루트의 `AGENTS.md`를 자동으로 읽습니다. 저�
 ```sh
 git clone https://github.com/giinii06/codebuddy-setup.git
 cd codebuddy-setup
-codex -s danger-full-access -a never "알아서 해줘"
+codex exec --trust -s danger-full-access "알아서 해줘"
 ```
 
-`-s danger-full-access -a never`는 Codex의 샌드박스와 승인 프롬프트를 끕니다. 설치 스크립트가 `$HOME`에 쓰고 네트워크를 쓰기 때문에 필요합니다. 실행 전에 `install.sh` 내용을 확인하세요.
+`-s danger-full-access`는 Codex의 샌드박스를 끕니다. 설치 스크립트가 `$HOME`에 쓰고 네트워크를 쓰기 때문에 필요합니다. `--trust`는 이 저장소를 신뢰 대상으로 기록하고 MCP 명령을 샌드박스 밖에서 실행하게 합니다. 실행 전에 `install.sh` 내용을 확인하세요.
+
+`codex exec`는 승인을 묻지 않으므로, 대화형으로 하려면 `codex -s danger-full-access -a never "알아서 해줘"`를 씁니다.
 
 Codex는 WSL 환경을 확인하고 `CODEBUDDY_SETUP_NO_LOGIN=1 bash install.sh`로 설치합니다. 이어서 설치를 검증하고, 사용자가 직접 해야 하는 브라우저 로그인 명령을 알려 줍니다.
 
