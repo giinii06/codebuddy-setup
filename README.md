@@ -59,6 +59,20 @@ curl -fsSL https://raw.githubusercontent.com/giinii06/codebuddy-setup/main/insta
 
 WSL에서는 PowerShell이 아니라 WSL 셸 안에서 실행하세요.
 
+### Codex에 맡기기
+
+Codex CLI는 저장소 루트의 `AGENTS.md`를 자동으로 읽습니다. 저장소를 받고 Codex를 실행한 뒤 한마디만 하면 됩니다.
+
+```sh
+git clone https://github.com/giinii06/codebuddy-setup.git
+cd codebuddy-setup
+codex -s danger-full-access -a never "알아서 해줘"
+```
+
+`-s danger-full-access -a never`는 Codex의 샌드박스와 승인 프롬프트를 끕니다. 설치 스크립트가 `$HOME`에 쓰고 네트워크를 쓰기 때문에 필요합니다. 실행 전에 `install.sh` 내용을 확인하세요.
+
+Codex는 WSL 환경을 확인하고 `CODEBUDDY_SETUP_NO_LOGIN=1 bash install.sh`로 설치합니다. 이어서 설치를 검증하고, 사용자가 직접 해야 하는 브라우저 로그인 명령을 알려 줍니다.
+
 ### API 키를 함께 넣으려면
 
 키는 저장소에 들어 있지 않습니다. 필요하면 환경 변수로 넘깁니다.
